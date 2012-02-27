@@ -1,0 +1,5 @@
+Script to put NHL.com's event tracking into a relational database, using their Ice Tracker application's JSON calls, e.g.:
+
+http://live.nhl.com/GameData/20112012/2011020851/PlayByPlay.json
+
+Usage/configuration/notes @ the github wiki: https://github.com/wellsoliver/py-nhl/wiki
