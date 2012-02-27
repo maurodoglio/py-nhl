@@ -70,6 +70,12 @@ create table events_penaltybox (
     foreign key(game_id, event_id) references events(game_id, event_id)
 );
 
+create index idx_events_game_id on events(game_id);
+create index idx_events_team_id on events(team_id);
+create index idx_events_player_id on events(player_id);
+create index idx_events_players_player_id on events_players(player_id);
+create index idx_events_penaltybox_player_id on events_penaltybox(player_id);
+
 /*
 
 note - I am not puting a FK restraint on player_id values since there may be some
