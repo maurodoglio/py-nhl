@@ -12,19 +12,12 @@ import sys
 import getopt
 import calendar
 
+
 # Usage information
 def usage():
     print "usage information available on github wiki @ https://github.com/wellsoliver/py-nhl/wiki"
+    raise SystemExit
     
-
-# Convers feet'inches format to numeric inches
-def convertheight(height):
-    try:
-        h = [re.sub('\D', '', val) for val in height.split(' ')]
-        return (int(h[0]) * 12) + int(h[1])
-    except:
-        return height
-
 
 # Grabs a URL
 def fetchurl(url):
@@ -34,15 +27,6 @@ def fetchurl(url):
         return res.read()
     except:
         return None
-
-
-# Returns a team ID for the given name
-def fetchteamid(teamname, conn):
-    sql = 'SELECT team_id FROM teams WHERE name = %s'
-    result = conn.execute(sql, [teamname])
-    if result.rowcount == 0: return None
-    
-    return result.fetchone()['team_id']
 
 
 # Gets a list of games for the given day
@@ -74,54 +58,8 @@ def getgame(game_id, season):
         return None
 
 
-# Fetches information for a player
-def processplayer(player_id, conn):
-    # sadly we must parse HTML, don't know if there's raw JSON for this
-    url = 'http://www.nhl.com/ice/player.htm?id=%s' % player_id
-    html = fetchurl(url)
-
-    if html:
-        soup = BeautifulSoup(html)
-
-        # player info has div ID "tombstone" - yikes!
-        box = soup.find("div", id="tombstone")
-        table = box.find("table")
-
-        if table is None: return False
-
-        try:
-            name = box.find("h1").find("div").text
-            name = name[0:name.find('#')]
-            teamname = box.find('h1').nextSibling()[0].text
-            team_id = fetchteamid(teamname, conn)
-        except:
-            return False
-
-        try:
-            tablecells = [''.join(cell.findAll(text=True)) for cell in table.findAll('td')]
-            height = convertheight(str(tablecells[5].strip()))
-            weight = str(tablecells[9].strip())
-        except:
-            height = None
-            weight = None
-
-        try:
-            dobstruct = time.strptime(tablecells[3].split('\n')[1], '%B %d, %Y')
-            dob = datetime.datetime.fromtimestamp(time.mktime(dobstruct))
-        except:
-            dob = None
-
-        query = 'DELETE FROM players WHERE player_id = %s'
-        conn.execute(query, [player_id])
-        query = 'INSERT INTO players (player_id, team_id, name, height, weight, dob) VALUES(%s, %s, %s, %s, %s, %s)'
-        conn.execute(query, [player_id, team_id, name, height, weight, dob])
-        return True
-    else:
-        return False
-
-
 # Processes an event
-def processevent(game_id, event, conn, playerlist):
+def processevent(game_id, event, conn):
     event_id = event['eventid']
 
     headers = [
@@ -144,7 +82,7 @@ def processevent(game_id, event, conn, playerlist):
         'time',
         'goalie_id'
     ]
-
+    
     values = [
         event_id,
         event['formalEventId'],
@@ -162,14 +100,10 @@ def processevent(game_id, event, conn, playerlist):
         event['as'],
         event['hsog'] if event['type'] in ['Goal', 'Shot'] else None,
         event['asog'] if event['type'] in ['Goal', 'Shot'] else None,
-        event['time'].replace(':', '.'),
+        event['time'],
         event['g_goalieID'] if 'g_goalieID' in event and event['g_goalieID'] <> '' else None
     ]
     
-    if 'pid' in event:
-        if event['pid'] not in playerlist:
-            playerlist.append(event['pid'])
-
     sql = 'INSERT INTO events (%s) VALUES(%s)' % (','.join(headers), ','.join(['%s'] * len(values)))
     conn.execute(sql, values)
 
@@ -195,7 +129,7 @@ def processevent(game_id, event, conn, playerlist):
 
 
 # Processes a game
-def processgame(game, game_id, date, playerlist, conn):
+def processgame(game, game_id, date, conn):
     
     # Clear out data
     query = 'DELETE FROM events_players WHERE game_id = %s'
@@ -233,7 +167,7 @@ def processgame(game, game_id, date, playerlist, conn):
     conn.execute(sql, [game_id])
     
     for event in game['plays']['play']:
-        processevent(game_id, event, conn, playerlist)
+        processevent(game_id, event, conn)
 
 
 def main():
@@ -265,20 +199,23 @@ def main():
 
     if SCHEMA: conn.execute('SET search_path TO %s' % SCHEMA)
 
-    season = '20112012'
+    SEASON = False
     YEAR = False
     MONTH = False
     dates = []
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "y:m:", ["year=", "month="])
+        opts, args = getopt.getopt(sys.argv[1:], "s:y:m:", ["season=", "year=", "month="])
     except getopt.GetoptError, e:
         usage()
-        raise SystemExit
 
     for o, a in opts:
         if o in ('-y', '--year'): YEAR = int(a)
         elif o in ('-m', '--month'): MONTH = int(a)
+        elif o in ('-s', '--season'): SEASON = int(a)
+
+    if SEASON is False:
+        usage()
 
     if YEAR:
         if MONTH:
@@ -292,20 +229,15 @@ def main():
         # Just yesterday!
         dates = [datetime.datetime.today() - datetime.timedelta(1)]
 
-    # Player list is used to later store player information for everyone we've looked at
-    playerlist = []
-
     for date in dates:
         gamelist = getgamelist(date)
 
         for game in gamelist:
             game_id = game['id']
-            fetchedgame = getgame(game_id, season)
-    
-            if fetchedgame is None: continue
-            processgame(fetchedgame, game_id, date, playerlist, conn)
+            fetchedgame = getgame(game_id, SEASON)
 
-    for player_id in playerlist: processplayer(player_id, conn)
+            if fetchedgame is None: continue
+            processgame(fetchedgame, game_id, date, conn)
 
 
 if __name__ == '__main__':
