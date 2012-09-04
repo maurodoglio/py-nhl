@@ -11,7 +11,7 @@ import datetime
 import time
 import sys
 import getopt
-
+import os
 
 # Usage information
 def usage():
@@ -109,8 +109,9 @@ def processsoup(soup, view, tablename, season, conn):
 
 
 def main():
+    pwd = os.path.dirname(__file__)
     config = ConfigParser.ConfigParser()
-    config.readfp(open('py-nhl.ini'))
+    config.readfp(open('%s/py-nhl.ini' % pwd))
     
     SEASON = False
 

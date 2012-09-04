@@ -11,6 +11,7 @@ import time
 import sys
 import getopt
 import calendar
+import os
 
 
 # Usage information
@@ -171,8 +172,9 @@ def processgame(game, game_id, date, conn):
 
 
 def main():
+    pwd = os.path.dirname(__file__)
     config = ConfigParser.ConfigParser()
-    config.readfp(open('py-nhl.ini'))
+    config.readfp(open('%s/py-nhl.ini' % pwd))
 
     try:
         ENGINE = config.get('database', 'engine')
