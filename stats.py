@@ -110,6 +110,7 @@ def processsoup(soup, view, tablename, season, conn):
 
 def main():
     pwd = os.path.dirname(__file__)
+    if pwd == '': pwd = '.'
     config = ConfigParser.ConfigParser()
     config.readfp(open('%s/py-nhl.ini' % pwd))
     
