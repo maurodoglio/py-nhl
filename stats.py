@@ -18,26 +18,18 @@ def usage():
     print "usage information available on github wiki @ https://github.com/wellsoliver/py-nhl/wiki"
     raise SystemExit
 
-# Returns a team ID for the given abbreviation
-def fetchteamid(abbrev, conn):
-    sql = 'SELECT team_id FROM teams WHERE abbrev = %s'
-    result = conn.execute(sql, [abbrev])
-    if result.rowcount == 0: return None
-    
-    return result.fetchone()['team_id']
-
 
 # Grabs a URL and returns a BeautifulSoup object
-def fetchsoup(url):
+def fetchsoup(url, **kwargs):
     try:
-        print url
+        if 'verbose' in kwargs: print url
         res = urllib2.urlopen(url)
         return BeautifulSoup(res.read())
     except:
         return None
 
 
-def processsoup(soup, view, tablename, season, conn):
+def processsoup(soup, position, view, tablename, season, conn):
     table = soup.find('table', 'data')
     tablerows = table.find('tbody').findAll('tr')
     
@@ -52,8 +44,10 @@ def processsoup(soup, view, tablename, season, conn):
             continue
         
         # Get the list of values we want based on the view
-        if view == 'summary':
+        if view == 'summary' and position == 'S':
             values = [cell.text.replace(',', '') for cell in cellvalues[4:]]
+        elif view == 'summary' and position == 'G':
+            values = [cell.text.replace(',', '') for cell in cellvalues[3:]]
         elif view == 'timeonice':
             values = [cell.text.replace(',', '') for cell in cellvalues[4:]]
         elif view == 'faceoffpercentageall':
@@ -61,7 +55,7 @@ def processsoup(soup, view, tablename, season, conn):
             values.pop(9)
             values.pop(11)
             values.pop()
-        elif view == 'bios':
+        elif view == 'bios' or view == 'goaliebios':
             values = [cell.text for cell in cellvalues[:-8]]
             # sometimes NHL.com lists a player on two pages... *shrug*
             query = 'SELECT * FROM players WHERE player_id = %s'
@@ -80,19 +74,26 @@ def processsoup(soup, view, tablename, season, conn):
                 values[i] = round(valuelist[0] + (valuelist[1] / 60.0), 2)
 
         # Custom handling
-        if view == 'bios':
+        if view == 'bios' or view == 'goaliebios':
             # Create a datetime object for DOB
             try:
-                dobstruct = time.strptime(values[4], '%b %d \'%y')
-                values[4] = datetime.datetime.fromtimestamp(time.mktime(dobstruct))
-            except: values[4] = None
+                idx = 4 if view == 'bios' else 3
+                dobstruct = time.strptime(values[idx], '%b %d \'%y')
+                values[idx] = datetime.datetime.fromtimestamp(time.mktime(dobstruct))
+            except:
+                idx = 4 if view == 'bios' else 3
+                values[idx] = None
+            
+            # Set a position for a goalie
+            if view == 'goaliebios':
+                values.insert(3, 'G')
 
-            # Get the team ID for the current team
-            try:
-                teamlist = cellvalues[2].text.replace(' ', '').split(',')
-                teamidlist = [fetchteamid(abbrev, conn) for abbrev in teamlist]
-                values[2] = teamidlist[-1]
-            except: values[2] = None
+            # TODO Get the team ID for the current team
+            # teamabbr = cellvalues[2].text.replace(' ', '').split(',')[-1]
+            values[2] = None
+        elif view == 'summary' and position == 'S':
+            # Game-tying goals removed for 2004/2005, removing it for prior years
+            del values[11]
 
         # Convert emptys to null
         for i, value in enumerate(values):
@@ -103,28 +104,62 @@ def processsoup(soup, view, tablename, season, conn):
         if view in ['summary', 'timeonice', 'faceoffpercentageall']: values.insert(0, season)
         # Insert player ID
         values.insert(0, player_id)
-
+        
         query = 'INSERT INTO %s VALUES(%s)' % (tablename, ','.join(['%s'] * len(values)))
         conn.execute(query, values)
 
 
 def main():
     pwd = os.path.dirname(__file__)
+    if pwd == '': pwd = '.'
     config = ConfigParser.ConfigParser()
     config.readfp(open('%s/py-nhl.ini' % pwd))
     
     SEASON = False
+    VIEW = False
+    POSITION = 'S'
 
+    positions = ['S', 'G']
+
+    # Key is the NHL.com URL piece, value is the local DB table
+    views = {
+        'S': {
+            'faceOffPercentageAll': 'stats_skaters_faceoff',
+            'bios': 'players',
+            'timeOnIce': 'stats_skaters_timeonice',
+            'summary': 'stats_skaters_summary'
+        }, 'G': {
+            'summary': 'stats_goalies_summary',
+            'goalieBios': 'players',
+        }
+    }
+    
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "s:", ["season="])
+        opts, args = getopt.getopt(sys.argv[1:], "s:v:p:", ["season=","view=", "position="])
     except getopt.GetoptError, e:
         usage()
 
     for o, a in opts:
         if o in ('-s', '--season'): SEASON = int(a)
+        elif o in ('-p', '--position'): POSITION = a
+        elif o in ('-v', '--view'): VIEW = a
 
+    if POSITION not in positions:
+        print 'invalid position %s' % POSITION
+        usage()
+        raise SystemExit
+    if VIEW not in views[POSITION].keys():
+        print 'invalid view %s' % VIEW
+        usage()
+        raise SystemExit
+    
     if SEASON is False:
         usage()
+
+    if VIEW:
+        runviews = [VIEW]
+    else:
+        runviews = views[POSITION].keys()
 
     try:
         ENGINE = config.get('database', 'engine')
@@ -151,21 +186,16 @@ def main():
 
     if SCHEMA: conn.execute('SET search_path TO %s' % SCHEMA)
     
-    # Key is the NHL.com URL piece, value is the local DB table
-    views = {
-        'faceOffPercentageAll': 'stats_skaters_faceoff',
-        'bios': 'players',
-        'timeOnIce': 'stats_skaters_timeonice',
-        'summary': 'stats_skaters_summary'
-    }
-    
-    for view, tablename in views.iteritems():
-        if view != 'bios':
+    for view in runviews:
+        tablename = views[POSITION][view]
+        if view not in ['bios', 'goalieBios']:
             conn.execute("DELETE FROM %s WHERE season = %s" % (tablename, SEASON))
 
-        url = 'http://www.nhl.com/ice/playerstats.htm?season=%s&gameType=2&viewName=%s' % (SEASON, view)
-        soup = fetchsoup(url)
-        if soup: processsoup(soup, view, tablename, SEASON, conn)
+        # position S/G
+        url = 'http://www.nhl.com/ice/playerstats.htm?season=%s&position=%s&gameType=2&viewName=%s' % (SEASON, POSITION, view)
+        soup = fetchsoup(url, verbose=True)
+        if soup: processsoup(soup, POSITION, view, tablename, SEASON, conn)
+        else: continue
     
         # Get the max # of pages
         div = soup.find('div', 'pages')
@@ -173,9 +203,9 @@ def main():
 
         # Iterate from page 2 through the end
         for page in xrange(2, maxpage + 1):
-            url = 'http://www.nhl.com/ice/playerstats.htm?season=%s&gameType=2&viewName=%s&pg=%s' % (SEASON, view, page)
-            soup = fetchsoup(url)
-            if soup: processsoup(soup, view, tablename, SEASON, conn)
+            url = 'http://www.nhl.com/ice/playerstats.htm?season=%s&position=%s&gameType=2&viewName=%s&pg=%s' % (SEASON, POSITION, view, page)
+            soup = fetchsoup(url, verbose=True)
+            if soup: processsoup(soup, POSITION, view, tablename, SEASON, conn)
 
 
 if __name__ == '__main__':

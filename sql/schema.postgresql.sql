@@ -1,41 +1,52 @@
 set search_path to nhl;
 
-drop table if exists teams cascade;
-drop table if exists games cascade;
-drop table if exists events cascade;
-drop table if exists events_players;
-drop table if exists events_penaltybox;
+drop table if exists nhl.teams cascade;
+drop table if exists nhl.games cascade;
+drop table if exists nhl.events cascade;
+drop table if exists nhl.events_players;
+drop table if exists nhl.events_penaltybox;
 
-drop table if exists players cascade;
-drop table if exists stats_skaters_summary;
-drop table if exists stats_skaters_timeonice;
+drop table if exists nhl.players cascade;
+drop table if exists nhl.stats_skaters_summary;
+drop table if exists nhl.stats_skaters_timeonice;
 
 /* USED BY events.py */
 
-create table teams (
+create table nhl.teams (
     team_id integer,
     name varchar(35),
     nickname varchar(35),
     primary key(team_id)
 );
 
-create table games (
+create table nhl.games (
+	season integer,
     game_id integer,
-    away_team_id integer,
-    home_team_id integer,
     date date,
+    home_team_id integer references nhl.teams(team_id),
+    away_team_id integer references nhl.teams(team_id),
+    home_team_score integer,
+    away_team_score integer,
+    rl boolean,
+    gcl boolean,
+    gcll boolean,
+    bs varchar(35),
+    bsc varchar(35),
+    gs integer,
     primary key(game_id)
 );
 
-create table events (
+create table nhl.events (
     event_id integer,
     formal_event_id varchar(15),
-    game_id integer references games(game_id),
+    game_id integer references nhl.games(game_id),
     period integer,
+    strength integer,
     type varchar(15),
+    shot_type varchar(15),
     description varchar(255),
     player_id integer,
-    team_id integer references teams(team_id),
+    team_id integer references nhl.teams(team_id),
     xcoord integer,
     ycoord integer,
     home_score integer,
@@ -49,25 +60,25 @@ create table events (
     primary key (game_id, event_id)
 );
 
-create table events_players (
-    game_id integer,
+create table nhl.events_players (
+    game_id integer references nhl.games(game_id),
     event_id integer,
     which varchar(15),
     player_id integer,
-    foreign key(game_id, event_id) references events(game_id, event_id)
+    foreign key(game_id, event_id) references nhl.events(game_id, event_id)
 );
 
-create table events_penaltybox (
-    game_id integer,
+create table nhl.events_penaltybox (
+    game_id integer references nhl.games(game_id),
     event_id integer,
     which varchar(15),
     player_id integer,
-    foreign key(game_id, event_id) references events(game_id, event_id)
+    foreign key(game_id, event_id) references nhl.events(game_id, event_id)
 );
 
 /* USED BY stats.py */
 
-create table players (
+create table nhl.players (
     player_id integer,
     jersey integer,
     name varchar(100),
@@ -83,7 +94,7 @@ create table players (
     primary key(player_id)
 );
 
-create table stats_skaters_summary (
+create table nhl.stats_skaters_summary (
     player_id integer,
     season integer,
     gp integer,
@@ -104,7 +115,7 @@ create table stats_skaters_summary (
     primary key (player_id, season)
 );
 
-create table stats_skaters_timeonice (
+create table nhl.stats_skaters_timeonice (
     player_id integer,
     season integer,
     gp integer,
@@ -122,7 +133,7 @@ create table stats_skaters_timeonice (
     primary key (player_id, season)
 );
 
-create table stats_skaters_faceoff (
+create table nhl.stats_skaters_faceoff (
     player_id integer,
     season integer,
     gp integer,
@@ -139,6 +150,27 @@ create table stats_skaters_faceoff (
     fow integer,
     fol integer,
     total integer,
+    primary key (player_id, season)
+);
+
+create table nhl.stats_goalies_summary (
+    player_id integer,
+    season integer,
+    gp integer,
+    gs integer,
+    w integer,
+    l integer,
+	ot integer,
+	sa integer,
+	ga integer,
+	gaa real,
+	sv integer,
+	sv_pct numeric,
+	so integer,
+	g integer,
+	a integer,
+	pim integer,
+	toi numeric,
     primary key (player_id, season)
 );
 
