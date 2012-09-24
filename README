@@ -5,3 +5,5 @@ http://live.nhl.com/GameData/20112012/2011020851/PlayByPlay.json
 Usage/configuration/notes @ the github wiki: https://github.com/wellsoliver/py-nhl/wiki
 
 Notes on data @ the github wiki: https://github.com/wellsoliver/py-nhl/wiki/Data-notes
+
+Check the wiki out- it includes notes on the various HTTP calls made, and some questions/concerns.
